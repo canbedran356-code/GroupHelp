@@ -8,29 +8,33 @@ const fs = require("fs");
 const TR = require("./api/tg/tagResolver.js");
 const cp = require("./api/external/cryptoPrices.js");
 
-// ✅ ENV yükle
+// ENV yükle
 require('dotenv').config();
 
-// ✅ CONFIG (config.json yerine)
+// CONFIG
 const config = {
     BOT_TOKEN: process.env.BOT_TOKEN,
     OWNER_ID: process.env.OWNER_ID,
     reserveLang: process.env.RESERVE_LANG || "en",
-    allowExternalApi: process.env.ALLOW_EXTERNAL_API === "true"
+    allowExternalApi: process.env.ALLOW_EXTERNAL_API === "true",
+
+    // ✅ DATABASE FIX
+    databasePath: __dirname + "/database"
 };
 
-// ❗ Güvenlik kontrolü
+// güvenlik
 if (!config.BOT_TOKEN) {
     console.error("❌ BOT_TOKEN missing!");
     process.exit(1);
 }
 
+// ✅ DATABASE KLASÖRÜ YOKSA OLUŞTUR
+if (!fs.existsSync(config.databasePath)) {
+    fs.mkdirSync(config.databasePath);
+}
+
 console.log("Starting...");
 console.log("Libre group help current version: " + global.LGHVersion);
-
-function print(text) {
-    console.log("[index.js] " + text);
-}
 
 async function main() {
 
@@ -53,12 +57,9 @@ async function main() {
         console.log("-loaded language: \"" + l[fileName].LANG_NAME + "\" " + fileName);
 
         defaultLangObjects.forEach((object) => {
-
             if (!l[fileName].hasOwnProperty(object)) {
-                console.log("  identified missing parameter " + object + ", replacing from " + rLang);
                 l[fileName][object] = l[rLang][object];
             }
-
         });
 
     });
@@ -79,17 +80,14 @@ async function main() {
     var directory = fs.readdirSync(__dirname + "/plugins/");
 
     directory.forEach((fileName) => {
-
-        var func = require(__dirname + "/plugins/" + fileName);
         try {
+            var func = require(__dirname + "/plugins/" + fileName);
             func({ GHbot: GHbot, TGbot: TGbot, db: db, config: config });
+            console.log("\tloaded " + fileName);
         } catch (error) {
-            console.log("The plugin " + fileName + " crashed:");
+            console.log("Plugin crashed:", fileName);
             console.log(error);
         }
-
-        console.log("\tloaded " + fileName);
-
     });
 
     // shutdown
