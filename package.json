@@ -11,5 +11,8 @@
     "node-telegram-bot-api": "github:yagop/node-telegram-bot-api",
     "randomcolor": "^0.6.2",
     "svg-captcha": "^1.4.0"
+  },
+  "engines": {
+    "node": "20.x"
   }
 }
