@@ -4,143 +4,168 @@ const { punishUser } = require("../api/utils/punishment.js");
 const { isString } = require("../api/utils/utils.js");
 const RM = require("../api/utils/rolesManager.js");
 
-l = global.LGHLangs; //importing langs object
+const l = global.LGHLangs;
 
-const arabicPattern = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/;
-function isArabic(text)
-{
-    if(!isString(text)) return false;
-    return arabicPattern.test(text);
-}
-
-const cyrillicPattern = /[\u0400-\u04FF\u0500-\u052F\u2DE0-\u2DFF\uA640-\uA69F]/;
-function isCyrillic(text)
-{
-    if(!isString(text)) return false;
-    return cyrillicPattern.test(text);
-}
-
-const HAN_REGEX = /[\u2E80-\u2E99\u2E9B-\u2EF3\u2F00-\u2FD5\u3005\u3007\u3021-\u3029\u3038-\u303B\u3400-\u4DB5\u4E00-\u9FD5\uF900-\uFA6D\uFA70-\uFAD9]/
-function isChinese(text)
-{
-    if(!isString(text)) return false;
-    return text.match(HAN_REGEX);
-}
-
+// REGEX
+const arabicPattern = /[\u0600-\u06FF]/;
+const cyrillicPattern = /[\u0400-\u04FF]/;
+const HAN_REGEX = /[\u4E00-\u9FFF]/;
 const LATIN_REGEX = /[a-zA-Z]/;
-function isLatin(text)
-{
-    if(!isString(text)) return false;
-    return text.match(LATIN_REGEX);
-}
 
-function main(args)
-{
+// SAFE CHECKS
+const isArabic = (t) => isString(t) && arabicPattern.test(t);
+const isCyrillic = (t) => isString(t) && cyrillicPattern.test(t);
+const isChinese = (t) => isString(t) && HAN_REGEX.test(t);
+const isLatin = (t) => isString(t) && LATIN_REGEX.test(t);
+
+function main(args) {
 
     const GHbot = new LGHelpTemplate(args);
-    const {TGbot, db, config} = GHbot;
+    const { TGbot, db } = GHbot;
 
-    GHbot.onMessage( async (msg, chat, user) => {
+    GHbot.onMessage(async (msg, chat, user) => {
 
-        //spam detection
-        if(msg.chat.type != "private" && user.perms.alphabets != 1){(()=>{
+        // 🔴 SAFE GUARD (EN KRİTİK)
+        if (
+            !msg ||
+            !chat ||
+            !user ||
+            !user.perms ||
+            !chat.alphabets
+        ) return;
 
-            var text = msg.text || msg.caption || false;
-            if(!text) return;
+        // sadece group
+        if (msg.chat.type === "private") return;
 
-            //does not check text if no punishment would be applyed
-            var arabic = (chat.alphabets.arabic.punishment != 0 || chat.alphabets.arabic.delete) && isArabic(text);
-            var cyrillic = (chat.alphabets.cyrillic.punishment != 0 || chat.alphabets.cyrillic.delete) && isCyrillic(text);
-            var chinese = (chat.alphabets.chinese.punishment != 0 || chat.alphabets.chinese.delete) && isChinese(text);
-            var latin = (chat.alphabets.latin.punishment != 0 || chat.alphabets.latin.delete) && isLatin(text);
+        // yetkili skip
+        if (user.perms.alphabets === 1) return;
 
-            if( !(arabic || cyrillic || chinese || latin) ) return;
+        const text = msg.text || msg.caption;
+        if (!text) return;
 
-            var punishment = 0;
-            var PTime = 0;
-            var deletion = false;
-            if(arabic)
-            {
-                punishment = (punishment >= chat.alphabets.arabic.punishment) ? punishment : chat.alphabets.arabic.punishment;
-                PTime = (PTime >= chat.alphabets.arabic.PTime) ? PTime : chat.alphabets.latin.PTime
-                deletion = chat.alphabets.arabic.delete ? true : deletion;
-            }
-            if(cyrillic)
-            {
-                punishment = (punishment >= chat.alphabets.cyrillic.punishment) ? punishment : chat.alphabets.cyrillic.punishment;
-                PTime = (PTime >= chat.alphabets.cyrillic.PTime) ? PTime : chat.alphabets.latin.PTime
-                deletion = chat.alphabets.cyrillic.delete ? true : deletion;
-            }
-            if(chinese)
-            {
-                punishment = (punishment >= chat.alphabets.chinese.punishment) ? punishment : chat.alphabets.chinese.punishment;
-                PTime = (PTime >= chat.alphabets.chinese.PTime) ? PTime : chat.alphabets.latin.PTime
-                deletion = chat.alphabets.chinese.delete ? true : deletion;
-            }
-            if(latin)
-            {
-                punishment = (punishment >= chat.alphabets.latin.punishment) ? punishment : chat.alphabets.latin.punishment;
-                PTime = (PTime >= chat.alphabets.latin.PTime) ? PTime : chat.alphabets.latin.PTime
-                deletion = chat.alphabets.latin.delete ? true : deletion;
-            }
+        const lang = chat.lang || "en";
 
-            var types = [];
-            if(arabic) types.push(l[chat.lang].ARABIC);
-            if(cyrillic) types.push(l[chat.lang].CYRILLIC);
-            if(chinese) types.push(l[chat.lang].CHINESE);
-            if(latin) types.push(l[chat.lang].LATIN);
-            types = types.join("+");
+        const alphabets = chat.alphabets;
 
-            var reason = l[chat.lang].UNALLOWED_ALPHABET_PUNISHMENT;
-            if(punishment != 0)
-            {
-                reason = reason.replace("{types}",types);
+        // DETECT
+        const arabic = alphabets.arabic && (alphabets.arabic.punishment != 0 || alphabets.arabic.delete) && isArabic(text);
+        const cyrillic = alphabets.cyrillic && (alphabets.cyrillic.punishment != 0 || alphabets.cyrillic.delete) && isCyrillic(text);
+        const chinese = alphabets.chinese && (alphabets.chinese.punishment != 0 || alphabets.chinese.delete) && isChinese(text);
+        const latin = alphabets.latin && (alphabets.latin.punishment != 0 || alphabets.latin.delete) && isLatin(text);
+
+        if (!(arabic || cyrillic || chinese || latin)) return;
+
+        let punishment = 0;
+        let PTime = 0;
+        let deletion = false;
+
+        if (arabic && alphabets.arabic) {
+            punishment = Math.max(punishment, alphabets.arabic.punishment || 0);
+            PTime = Math.max(PTime, alphabets.arabic.PTime || 0);
+            deletion = deletion || alphabets.arabic.delete;
+        }
+
+        if (cyrillic && alphabets.cyrillic) {
+            punishment = Math.max(punishment, alphabets.cyrillic.punishment || 0);
+            PTime = Math.max(PTime, alphabets.cyrillic.PTime || 0);
+            deletion = deletion || alphabets.cyrillic.delete;
+        }
+
+        if (chinese && alphabets.chinese) {
+            punishment = Math.max(punishment, alphabets.chinese.punishment || 0);
+            PTime = Math.max(PTime, alphabets.chinese.PTime || 0);
+            deletion = deletion || alphabets.chinese.delete;
+        }
+
+        if (latin && alphabets.latin) {
+            punishment = Math.max(punishment, alphabets.latin.punishment || 0);
+            PTime = Math.max(PTime, alphabets.latin.PTime || 0);
+            deletion = deletion || alphabets.latin.delete;
+        }
+
+        // TYPE TEXT
+        let types = [];
+        if (arabic) types.push(l[lang]?.ARABIC || "Arabic");
+        if (cyrillic) types.push(l[lang]?.CYRILLIC || "Cyrillic");
+        if (chinese) types.push(l[lang]?.CHINESE || "Chinese");
+        if (latin) types.push(l[lang]?.LATIN || "Latin");
+
+        types = types.join("+");
+
+        let reason = l[lang]?.UNALLOWED_ALPHABET_PUNISHMENT || "Alphabet not allowed";
+        reason = reason.replace("{types}", types);
+
+        // 🔥 PUNISH
+        if (punishment !== 0) {
+            try {
                 punishUser(GHbot, user.id, chat, RM.userToTarget(chat, user), punishment, PTime, reason);
-            }
-            if(deletion) GHbot.TGbot.deleteMessages(chat.id, [msg.message_id]);
-            
-        })()}
-
-        //security guards
-        if ( !(msg.waitingReply && msg.waitingReply.startsWith("S_ALPHABETS")) ) return;
-        if ( msg.chat.isGroup && chat.id != msg.chat.id ) return;//additional security guard
-        if ( !(user.perms && user.perms.settings) ) return;
-
-        if (msg.waitingReply.startsWith("S_ALPHABETS#ABP"))
-        {
-            var newAbp = ABP.messageEvent(GHbot, chat.alphabets, msg, chat, user, "S_ALPHABETS");
-            if(newAbp)
-            {
-                chat.alphabets = newAbp;
-                db.chats.update(chat);
+            } catch (e) {
+                console.log("Punish error:", e.message);
             }
         }
 
-    } )
+        // 🔥 DELETE
+        if (deletion) {
+            try {
+                await TGbot.deleteMessage(chat.id, msg.message_id);
+            } catch {}
+        }
 
-    GHbot.onCallback( async (cb, chat, user) => {
+        // ---------------- SETTINGS PART ----------------
 
-        var msg = cb.message;
-        var lang = user.lang;
-
-        //security guards for settings
-        var myCallback = cb.data.startsWith("S_ALPHABETS");
-        if(!chat.isGroup) return;
-        if (!myCallback) return;
+        if (!msg.waitingReply || !msg.waitingReply.startsWith("S_ALPHABETS")) return;
+        if (msg.chat.isGroup && chat.id != msg.chat.id) return;
         if (!(user.perms && user.perms.settings)) return;
-        if (cb.chat.isGroup && chat.id != cb.chat.id) return;
 
-        if (cb.data.startsWith("S_ALPHABETS#ABP")) {
-            var returnButtons = [[{ text: l[lang].BACK_BUTTON, callback_data: "SETTINGS_HERE:" + chat.id }]];
-            var title = l[lang].ALPHABETS_DESCRIPTION+"\n";
-            var newAbp = ABP.callbackEvent(GHbot, db, chat.alphabets, cb, chat, user, "S_ALPHABETS", returnButtons, title);
+        if (msg.waitingReply.startsWith("S_ALPHABETS#ABP")) {
+            const newAbp = ABP.messageEvent(GHbot, chat.alphabets, msg, chat, user, "S_ALPHABETS");
             if (newAbp) {
                 chat.alphabets = newAbp;
                 db.chats.update(chat);
             }
         }
 
-    })
+    });
+
+    GHbot.onCallback(async (cb, chat, user) => {
+
+        if (!cb || !chat || !user) return;
+
+        const msg = cb.message;
+        const lang = user.lang || "en";
+
+        if (!chat.isGroup) return;
+        if (!cb.data || !cb.data.startsWith("S_ALPHABETS")) return;
+        if (!(user.perms && user.perms.settings)) return;
+        if (cb.chat.isGroup && chat.id != cb.chat.id) return;
+
+        if (cb.data.startsWith("S_ALPHABETS#ABP")) {
+
+            const returnButtons = [[
+                { text: l[lang]?.BACK_BUTTON || "Back", callback_data: "SETTINGS_HERE:" + chat.id }
+            ]];
+
+            const title = (l[lang]?.ALPHABETS_DESCRIPTION || "") + "\n";
+
+            const newAbp = ABP.callbackEvent(
+                GHbot,
+                db,
+                chat.alphabets,
+                cb,
+                chat,
+                user,
+                "S_ALPHABETS",
+                returnButtons,
+                title
+            );
+
+            if (newAbp) {
+                chat.alphabets = newAbp;
+                db.chats.update(chat);
+            }
+        }
+
+    });
 
 }
 
