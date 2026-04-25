@@ -1,102 +1,109 @@
 process.env.NTBA_FIX_319 = 1;
 process.env.NTBA_FIX_350 = 0;
+
 global.LGHVersion = "0.2.9.2";
-global.directory = __dirname; //used from /api/database.js
+global.directory = __dirname;
+
 const fs = require("fs");
 const TR = require("./api/tg/tagResolver.js");
 const cp = require("./api/external/cryptoPrices.js");
-const config = JSON.parse( fs.readFileSync( __dirname + "/config.json" ) );
 
-console.log("Starting...")
-console.log( "Libre group help current version: " + global.LGHVersion )
+// ✅ ENV yükle
+require('dotenv').config();
 
-function print(text)
-{
-    console.log( "[index.js] " + text )
+// ✅ CONFIG (config.json yerine)
+const config = {
+    BOT_TOKEN: process.env.BOT_TOKEN,
+    OWNER_ID: process.env.OWNER_ID,
+    reserveLang: process.env.RESERVE_LANG || "en",
+    allowExternalApi: process.env.ALLOW_EXTERNAL_API === "true"
+};
+
+// ❗ Güvenlik kontrolü
+if (!config.BOT_TOKEN) {
+    console.error("❌ BOT_TOKEN missing!");
+    process.exit(1);
 }
 
-async function main()
-{
+console.log("Starting...");
+console.log("Libre group help current version: " + global.LGHVersion);
 
-    console.log( "Loading languages..." )
-    var l = {}//Object that store all languages
+function print(text) {
+    console.log("[index.js] " + text);
+}
+
+async function main() {
+
+    console.log("Loading languages...");
+    var l = {};
     var rLang = config.reserveLang;
-    l[rLang] = JSON.parse( fs.readFileSync( __dirname + "/langs/" + rLang + ".json") ); //default language to fix others uncompleted langs
-    console.log( "-loaded principal language: \"" + l[rLang].LANG_NAME + "\" " + rLang )
 
-    var langs = fs.readdirSync( __dirname + "/langs" );
-    langs.splice( langs.indexOf(rLang + ".json"), 1 );
+    l[rLang] = JSON.parse(fs.readFileSync(__dirname + "/langs/" + rLang + ".json"));
+    console.log("-loaded principal language: \"" + l[rLang].LANG_NAME + "\" " + rLang);
 
-    var defaultLangObjects = Object.keys(l[rLang])
-    langs.forEach( (langFile) => {
+    var langs = fs.readdirSync(__dirname + "/langs");
+    langs.splice(langs.indexOf(rLang + ".json"), 1);
 
-        var fileName = langFile.replaceAll( ".json", "" );
-        l[fileName] = JSON.parse( fs.readFileSync( __dirname + "/langs/" + langFile ) );
+    var defaultLangObjects = Object.keys(l[rLang]);
+
+    langs.forEach((langFile) => {
+
+        var fileName = langFile.replaceAll(".json", "");
+        l[fileName] = JSON.parse(fs.readFileSync(__dirname + "/langs/" + langFile));
         console.log("-loaded language: \"" + l[fileName].LANG_NAME + "\" " + fileName);
 
-        defaultLangObjects.forEach( (object) => { //detect and fill phrases from incompleted languages with default language (config.reserveLang)
+        defaultLangObjects.forEach((object) => {
 
-            if( !l[fileName].hasOwnProperty( object ) )
-            {
-
-                console.log( "  identified missing paramenter " + object + ", replacing from " + rLang );
+            if (!l[fileName].hasOwnProperty(object)) {
+                console.log("  identified missing parameter " + object + ", replacing from " + rLang);
                 l[fileName][object] = l[rLang][object];
+            }
 
-            };
+        });
 
-        } )
-        
-    } );
+    });
 
-    global.LGHLangs = l; //add global reference
+    global.LGHLangs = l;
 
-    
-    //load external api if allowed
-    if(config.allowExternalApi)
-    {
+    // external API
+    if (config.allowExternalApi) {
         await cp.load();
     }
 
+    // bot yükle
+    var LGHelpBot = require("./main.js");
+    var { GHbot, TGbot, db } = await LGHelpBot(config);
 
-    //load bot
-    var LGHelpBot = require( "./main.js" );
-    var {GHbot, TGbot, db} = await LGHelpBot(config);
-    
+    // pluginler
+    console.log("Loading modules...");
+    var directory = fs.readdirSync(__dirname + "/plugins/");
 
-    //load modules and run their function
-    console.log( "Loading modules..." )
-    var directory = fs.readdirSync( __dirname + "/plugins/" );
-    directory.forEach( (fileName) => {
+    directory.forEach((fileName) => {
 
-        var func = require( __dirname + "/plugins/" + fileName );
+        var func = require(__dirname + "/plugins/" + fileName);
         try {
-            func({GHbot : GHbot, TGbot : TGbot, db : db, config : config})
+            func({ GHbot: GHbot, TGbot: TGbot, db: db, config: config });
         } catch (error) {
-            console.log("The plugin " + fileName + " is crashed, i will turn it off and log here the error");
+            console.log("The plugin " + fileName + " crashed:");
             console.log(error);
         }
-        
-        console.log( "\tloaded " + fileName)
 
-    } )
+        console.log("\tloaded " + fileName);
 
+    });
 
-    
-    //unload management
-    var quitFunc = ()=>{
+    // shutdown
+    var quitFunc = () => {
         db.unload();
         TR.save();
         process.exit(0);
-    }
-    process.on('SIGINT', quitFunc);  // CTRL+C
-    process.on('SIGQUIT', quitFunc); // Keyboard quit
-    process.on('SIGTERM', quitFunc); // `kill` command
+    };
 
+    process.on('SIGINT', quitFunc);
+    process.on('SIGQUIT', quitFunc);
+    process.on('SIGTERM', quitFunc);
 
-    console.log("#LibreGroupHelp started#")
-
-
-
+    console.log("#LibreGroupHelp started#");
 }
-main();
 
+main();
