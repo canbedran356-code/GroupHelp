@@ -12,26 +12,22 @@ const {
     getOwner,
     keysArrayToObj,
     isChatAllowed,
-    getUnixTime,
-    unsetWaitReply
+    getUnixTime
 } = require("./api/utils/utils.js");
 
 async function main(config) {
 
     // ✅ CONFIG FIX
-    config.chatWhitelist = config.chatWhitelist || {};
-    config.chatBlacklist = config.chatBlacklist || {};
+    config.chatWhitelist = keysArrayToObj(config.chatWhitelist || {});
+    config.chatBlacklist = keysArrayToObj(config.chatBlacklist || {});
     config.reserveLang = config.reserveLang || "en";
-
-    config.chatWhitelist = keysArrayToObj(config.chatWhitelist);
-    config.chatBlacklist = keysArrayToObj(config.chatBlacklist);
 
     const GroupHelpBot = new EventEmitter();
     GroupHelpBot.setMaxListeners(100);
 
     console.log("🤖 Starting bot...");
 
-    // ✅ TOKEN FIX (küçük/büyük farkını çözdük)
+    // ✅ TOKEN FIX
     const token = config.botToken || config.BOT_TOKEN;
 
     if (!token) {
@@ -41,10 +37,10 @@ async function main(config) {
 
     const TGbot = new TelegramBot(token, { polling: true });
 
-    // webhook temizle (önemli)
+    // 🔥 webhook temizle (çok önemli)
     try {
         await TGbot.deleteWebHook();
-    } catch {}
+    } catch (e) {}
 
     const bot = await TGbot.getMe();
     TGbot.me = bot;
@@ -55,10 +51,9 @@ async function main(config) {
     let db;
     try {
         db = getDatabase(config);
-        console.log("📁 DB path:", db.dir);
+        console.log("📁 Database ready");
     } catch (err) {
-        console.log("❌ Database error:");
-        console.log(err);
+        console.log("❌ Database error:", err);
         process.exit(1);
     }
 
@@ -69,11 +64,11 @@ async function main(config) {
         config
     });
 
-    // tag resolver
+    // 🔥 TAG RESOLVER SAFE LOAD
     try {
         TR.load(config);
-    } catch (e) {
-        console.log("TR load hata ama devam ediyor");
+    } catch {
+        console.log("⚠️ TagResolver load hatası (önemli değil)");
     }
 
     const l = global.LGHLangs || {};
@@ -83,7 +78,7 @@ async function main(config) {
     // =========================
     async function handleMessage(msg) {
         try {
-            if (!msg || !msg.chat || !msg.from) return null;
+            if (!msg?.chat || !msg?.from) return null;
 
             if (!isChatAllowed(config, msg.chat.id)) return null;
 
@@ -92,36 +87,39 @@ async function main(config) {
             const from = msg.from;
             let chat = msg.chat;
 
-            const isGroup =
-                chat.type === "supergroup" || chat.type === "group";
-
+            const isGroup = ["group", "supergroup"].includes(chat.type);
             chat.isGroup = isGroup;
 
-            // user ekle
+            // 🔥 USER SAFE ADD
             if (!db.users.exhist(from.id)) {
                 db.users.add(from);
             }
 
-            const user = Object.assign({}, db.users.get(from.id), from);
+            // 🔥 CRASH FIX
+            const userData = db.users.get(from.id) || {};
+            const user = { ...userData, ...from };
 
-            // grup ilk giriş
-            if (isGroup && !db.chats.exhist(chat.id)) {
+            // 🔥 GROUP FIRST JOIN
+            if (isGroup && !db.chats.get(chat.id)) {
 
-                console.log("➕ New group added:", chat.id);
+                console.log("➕ New group:", chat.id);
 
                 chat.lang = config.reserveLang;
 
                 db.chats.add(chat);
-                chat = db.chats.get(chat.id);
+                let dbChat = db.chats.get(chat.id);
 
                 try {
                     const adminList = await TR.getAdmins(TGbot, chat.id, db);
-                    chat = RM.reloadAdmins(chat, adminList);
-                    db.chats.update(chat);
+
+                    dbChat = RM.reloadAdmins(dbChat, adminList);
+
+                    // ❗ BURASI ÖNEMLİ (senin kodda eksikti)
+                    db.chats.save(chat.id);
 
                     const creator = getOwner(adminList);
 
-                    let text = l[chat.lang]?.NEW_GROUP || "Bot added.";
+                    let text = l[dbChat.lang]?.NEW_GROUP || "Bot added.";
 
                     if (creator && !creator.is_anonymous) {
                         text = text.replace("{owner}", tag(".", creator.user.id));
@@ -134,27 +132,23 @@ async function main(config) {
                     });
 
                 } catch (e) {
-                    console.log("Admin çekme hatası (önemli değil)");
+                    console.log("⚠️ Admin çekme hatası");
                 }
             }
 
-            // chat merge
-            chat = Object.assign(
-                {},
-                chat.isGroup ? db.chats.get(chat.id) : {},
-                chat
-            );
+            // 🔥 CHAT MERGE SAFE
+            const dbChat = chat.isGroup ? db.chats.get(chat.id) || {} : {};
+            chat = { ...dbChat, ...chat };
 
             msg.chat = chat;
 
-            // command parse
+            // 🔥 COMMAND SAFE
             msg.command = parseCommand(msg.text || "");
 
             return { msg, chat, user };
 
         } catch (err) {
-            console.log("❌ handleMessage error:");
-            console.log(err);
+            console.log("❌ handleMessage error:", err);
             return null;
         }
     }
@@ -164,6 +158,7 @@ async function main(config) {
     // =========================
 
     TGbot.on("message", async (msg) => {
+
         const data = await handleMessage(msg);
         if (!data) return;
 
@@ -172,18 +167,19 @@ async function main(config) {
         try {
             GroupHelpBot.emit("message", m, chat, user);
 
-            // command handler
+            // 🔥 COMMAND HANDLER SAFE
             try {
                 GHCommand.messageEvent(m, chat, user);
-            } catch {}
+            } catch (e) {
+                console.log("⚠️ Command error:", e.message);
+            }
 
             if (chat.type === "private") {
                 GroupHelpBot.emit("private", m, chat, user);
             }
 
         } catch (err) {
-            console.log("❌ message event error:");
-            console.log(err);
+            console.log("❌ message event error:", err);
         }
     });
 
@@ -200,8 +196,7 @@ async function main(config) {
             GroupHelpBot.emit("callback_query", cb);
 
         } catch (err) {
-            console.log("❌ callback error:");
-            console.log(err);
+            console.log("❌ callback error:", err);
         }
     });
 
