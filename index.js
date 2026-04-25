@@ -11,7 +11,7 @@ const cp = require("./api/external/cryptoPrices.js");
 
 require("dotenv").config();
 
-// ✅ CONFIG
+// ✅ CONFIG (FIXED)
 const config = {
     botToken: process.env.BOT_TOKEN,
     ownerId: process.env.OWNER_ID,
@@ -19,8 +19,9 @@ const config = {
     reserveLang: process.env.RESERVE_LANG || "en",
     allowExternalApi: process.env.ALLOW_EXTERNAL_API === "true",
 
-    chatWhitelist: {},
-    chatBlacklist: {},
+    // 🔥 BURASI DÜZELTİLDİ
+    chatWhitelist: [],
+    chatBlacklist: [],
 
     databasePath: path.join(__dirname, "database")
 };
@@ -46,7 +47,7 @@ async function main() {
     let l = {};
     const rLang = config.reserveLang;
 
-    // 🔥 SAFE LANG LOAD
+    // ✅ DEFAULT LANG LOAD
     try {
         l[rLang] = JSON.parse(
             fs.readFileSync(path.join(__dirname, "langs", rLang + ".json"))
@@ -73,7 +74,6 @@ async function main() {
 
             console.log("-loaded language:", l[fileName].LANG_NAME, fileName);
 
-            // 🔥 eksik key fix
             defaultKeys.forEach((key) => {
                 if (!l[fileName].hasOwnProperty(key)) {
                     l[fileName][key] = l[rLang][key];
@@ -87,7 +87,7 @@ async function main() {
 
     global.LGHLangs = l;
 
-    // 🔥 EXTERNAL API SAFE
+    // ✅ EXTERNAL API
     if (config.allowExternalApi) {
         try {
             await cp.load();
@@ -96,7 +96,7 @@ async function main() {
         }
     }
 
-    // 🔥 BOT START
+    // ✅ BOT START
     const LGHelpBot = require("./main.js");
 
     let GHbot, TGbot, db;
@@ -109,7 +109,7 @@ async function main() {
         process.exit(1);
     }
 
-    // 🔥 PLUGINS SAFE LOAD
+    // ✅ PLUGINS
     console.log("Loading modules...");
     const pluginsPath = path.join(__dirname, "plugins");
 
@@ -123,8 +123,6 @@ async function main() {
                 if (typeof plugin === "function") {
                     plugin({ GHbot, TGbot, db, config });
                     console.log("✔ loaded", fileName);
-                } else {
-                    console.log("⚠️ Plugin değil:", fileName);
                 }
 
             } catch (error) {
@@ -134,7 +132,7 @@ async function main() {
         });
     }
 
-    // 🔥 SAFE SHUTDOWN
+    // ✅ SHUTDOWN
     const quitFunc = () => {
         console.log("🛑 Shutting down...");
         try { db.unload(); } catch {}
@@ -143,7 +141,6 @@ async function main() {
     };
 
     process.on("SIGINT", quitFunc);
-    process.on("SIGQUIT", quitFunc);
     process.on("SIGTERM", quitFunc);
 
     console.log("🚀 Bot fully started");
