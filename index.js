@@ -5,32 +5,36 @@ global.LGHVersion = "0.2.9.2";
 global.directory = __dirname;
 
 const fs = require("fs");
+const path = require("path");
 const TR = require("./api/tg/tagResolver.js");
 const cp = require("./api/external/cryptoPrices.js");
 
 // ENV yükle
-require('dotenv').config();
+require("dotenv").config();
 
-// CONFIG
+// CONFIG (ENV + fallback)
 const config = {
-    BOT_TOKEN: process.env.BOT_TOKEN,
-    OWNER_ID: process.env.OWNER_ID,
+    botToken: process.env.BOT_TOKEN,
+    ownerId: process.env.OWNER_ID,
+
     reserveLang: process.env.RESERVE_LANG || "en",
     allowExternalApi: process.env.ALLOW_EXTERNAL_API === "true",
 
-    // ✅ DATABASE FIX
-    databasePath: __dirname + "/database"
+    chatWhitelist: {},
+    chatBlacklist: {},
+
+    databasePath: path.join(__dirname, "database")
 };
 
-// güvenlik
-if (!config.BOT_TOKEN) {
+// ❗ TOKEN kontrol
+if (!config.botToken) {
     console.error("❌ BOT_TOKEN missing!");
     process.exit(1);
 }
 
-// ✅ DATABASE KLASÖRÜ YOKSA OLUŞTUR
+// ✅ DATABASE klasörü oluştur
 if (!fs.existsSync(config.databasePath)) {
-    fs.mkdirSync(config.databasePath);
+    fs.mkdirSync(config.databasePath, { recursive: true });
 }
 
 console.log("Starting...");
@@ -42,66 +46,81 @@ async function main() {
     var l = {};
     var rLang = config.reserveLang;
 
-    l[rLang] = JSON.parse(fs.readFileSync(__dirname + "/langs/" + rLang + ".json"));
-    console.log("-loaded principal language: \"" + l[rLang].LANG_NAME + "\" " + rLang);
+    // ana dil
+    l[rLang] = JSON.parse(
+        fs.readFileSync(path.join(__dirname, "langs", rLang + ".json"))
+    );
 
-    var langs = fs.readdirSync(__dirname + "/langs");
-    langs.splice(langs.indexOf(rLang + ".json"), 1);
+    console.log("-loaded principal language:", l[rLang].LANG_NAME, rLang);
+
+    var langs = fs.readdirSync(path.join(__dirname, "langs"));
+    langs = langs.filter(f => f !== rLang + ".json");
 
     var defaultLangObjects = Object.keys(l[rLang]);
 
     langs.forEach((langFile) => {
 
-        var fileName = langFile.replaceAll(".json", "");
-        l[fileName] = JSON.parse(fs.readFileSync(__dirname + "/langs/" + langFile));
-        console.log("-loaded language: \"" + l[fileName].LANG_NAME + "\" " + fileName);
+        var fileName = langFile.replace(".json", "");
+
+        l[fileName] = JSON.parse(
+            fs.readFileSync(path.join(__dirname, "langs", langFile))
+        );
+
+        console.log("-loaded language:", l[fileName].LANG_NAME, fileName);
 
         defaultLangObjects.forEach((object) => {
             if (!l[fileName].hasOwnProperty(object)) {
                 l[fileName][object] = l[rLang][object];
             }
         });
-
     });
 
     global.LGHLangs = l;
 
     // external API
     if (config.allowExternalApi) {
-        await cp.load();
+        try {
+            await cp.load();
+        } catch (e) {
+            console.log("External API yüklenemedi (önemli değil)");
+        }
     }
 
-    // bot yükle
+    // BOT başlat
     var LGHelpBot = require("./main.js");
     var { GHbot, TGbot, db } = await LGHelpBot(config);
 
     // pluginler
     console.log("Loading modules...");
-    var directory = fs.readdirSync(__dirname + "/plugins/");
+    const pluginsPath = path.join(__dirname, "plugins");
 
-    directory.forEach((fileName) => {
-        try {
-            var func = require(__dirname + "/plugins/" + fileName);
-            func({ GHbot: GHbot, TGbot: TGbot, db: db, config: config });
-            console.log("\tloaded " + fileName);
-        } catch (error) {
-            console.log("Plugin crashed:", fileName);
-            console.log(error);
-        }
-    });
+    if (fs.existsSync(pluginsPath)) {
+        var directory = fs.readdirSync(pluginsPath);
+
+        directory.forEach((fileName) => {
+            try {
+                var func = require(path.join(pluginsPath, fileName));
+                func({ GHbot, TGbot, db, config });
+                console.log("✔ loaded", fileName);
+            } catch (error) {
+                console.log("❌ Plugin crashed:", fileName);
+                console.log(error);
+            }
+        });
+    }
 
     // shutdown
-    var quitFunc = () => {
-        db.unload();
-        TR.save();
+    const quitFunc = () => {
+        try { db.unload(); } catch {}
+        try { TR.save(); } catch {}
         process.exit(0);
     };
 
-    process.on('SIGINT', quitFunc);
-    process.on('SIGQUIT', quitFunc);
-    process.on('SIGTERM', quitFunc);
+    process.on("SIGINT", quitFunc);
+    process.on("SIGQUIT", quitFunc);
+    process.on("SIGTERM", quitFunc);
 
-    console.log("#LibreGroupHelp started#");
+    console.log("🚀 #LibreGroupHelp started#");
 }
 
 main();
