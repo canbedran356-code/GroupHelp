@@ -9,10 +9,9 @@ const path = require("path");
 const TR = require("./api/tg/tagResolver.js");
 const cp = require("./api/external/cryptoPrices.js");
 
-// ENV yükle
 require("dotenv").config();
 
-// CONFIG (ENV + fallback)
+// ✅ CONFIG
 const config = {
     botToken: process.env.BOT_TOKEN,
     ownerId: process.env.OWNER_ID,
@@ -26,91 +25,118 @@ const config = {
     databasePath: path.join(__dirname, "database")
 };
 
-// ❗ TOKEN kontrol
+// ❗ TOKEN CHECK
 if (!config.botToken) {
     console.error("❌ BOT_TOKEN missing!");
     process.exit(1);
 }
 
-// ✅ DATABASE klasörü oluştur
+// ✅ DATABASE DIR
 if (!fs.existsSync(config.databasePath)) {
     fs.mkdirSync(config.databasePath, { recursive: true });
 }
 
 console.log("Starting...");
-console.log("Libre group help current version: " + global.LGHVersion);
+console.log("Libre group help version:", global.LGHVersion);
 
 async function main() {
 
     console.log("Loading languages...");
-    var l = {};
-    var rLang = config.reserveLang;
 
-    // ana dil
-    l[rLang] = JSON.parse(
-        fs.readFileSync(path.join(__dirname, "langs", rLang + ".json"))
-    );
+    let l = {};
+    const rLang = config.reserveLang;
+
+    // 🔥 SAFE LANG LOAD
+    try {
+        l[rLang] = JSON.parse(
+            fs.readFileSync(path.join(__dirname, "langs", rLang + ".json"))
+        );
+    } catch (e) {
+        console.error("❌ Default language yüklenemedi:", rLang);
+        process.exit(1);
+    }
 
     console.log("-loaded principal language:", l[rLang].LANG_NAME, rLang);
 
-    var langs = fs.readdirSync(path.join(__dirname, "langs"));
+    let langs = fs.readdirSync(path.join(__dirname, "langs"));
     langs = langs.filter(f => f !== rLang + ".json");
 
-    var defaultLangObjects = Object.keys(l[rLang]);
+    const defaultKeys = Object.keys(l[rLang]);
 
     langs.forEach((langFile) => {
+        try {
+            const fileName = langFile.replace(".json", "");
 
-        var fileName = langFile.replace(".json", "");
+            l[fileName] = JSON.parse(
+                fs.readFileSync(path.join(__dirname, "langs", langFile))
+            );
 
-        l[fileName] = JSON.parse(
-            fs.readFileSync(path.join(__dirname, "langs", langFile))
-        );
+            console.log("-loaded language:", l[fileName].LANG_NAME, fileName);
 
-        console.log("-loaded language:", l[fileName].LANG_NAME, fileName);
+            // 🔥 eksik key fix
+            defaultKeys.forEach((key) => {
+                if (!l[fileName].hasOwnProperty(key)) {
+                    l[fileName][key] = l[rLang][key];
+                }
+            });
 
-        defaultLangObjects.forEach((object) => {
-            if (!l[fileName].hasOwnProperty(object)) {
-                l[fileName][object] = l[rLang][object];
-            }
-        });
+        } catch (e) {
+            console.log("⚠️ Dil yüklenemedi:", langFile);
+        }
     });
 
     global.LGHLangs = l;
 
-    // external API
+    // 🔥 EXTERNAL API SAFE
     if (config.allowExternalApi) {
         try {
             await cp.load();
-        } catch (e) {
-            console.log("External API yüklenemedi (önemli değil)");
+        } catch {
+            console.log("⚠️ External API yüklenemedi");
         }
     }
 
-    // BOT başlat
-    var LGHelpBot = require("./main.js");
-    var { GHbot, TGbot, db } = await LGHelpBot(config);
+    // 🔥 BOT START
+    const LGHelpBot = require("./main.js");
 
-    // pluginler
+    let GHbot, TGbot, db;
+
+    try {
+        ({ GHbot, TGbot, db } = await LGHelpBot(config));
+    } catch (err) {
+        console.error("❌ Bot başlatılamadı:");
+        console.error(err);
+        process.exit(1);
+    }
+
+    // 🔥 PLUGINS SAFE LOAD
     console.log("Loading modules...");
     const pluginsPath = path.join(__dirname, "plugins");
 
     if (fs.existsSync(pluginsPath)) {
-        var directory = fs.readdirSync(pluginsPath);
+        const files = fs.readdirSync(pluginsPath);
 
-        directory.forEach((fileName) => {
+        files.forEach((fileName) => {
             try {
-                var func = require(path.join(pluginsPath, fileName));
-                func({ GHbot, TGbot, db, config });
-                console.log("✔ loaded", fileName);
+                const plugin = require(path.join(pluginsPath, fileName));
+
+                if (typeof plugin === "function") {
+                    plugin({ GHbot, TGbot, db, config });
+                    console.log("✔ loaded", fileName);
+                } else {
+                    console.log("⚠️ Plugin değil:", fileName);
+                }
+
             } catch (error) {
                 console.log("❌ Plugin crashed:", fileName);
-                console.log(error);
+                console.log(error.message);
             }
         });
     }
 
-    // shutdown
+    // 🔥 SAFE SHUTDOWN
     const quitFunc = () => {
+        console.log("🛑 Shutting down...");
         try { db.unload(); } catch {}
         try { TR.save(); } catch {}
         process.exit(0);
@@ -120,7 +146,7 @@ async function main() {
     process.on("SIGQUIT", quitFunc);
     process.on("SIGTERM", quitFunc);
 
-    console.log("🚀 #LibreGroupHelp started#");
+    console.log("🚀 Bot fully started");
 }
 
 main();
