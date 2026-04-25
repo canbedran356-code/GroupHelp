@@ -11,13 +11,11 @@ const {
     tag,
     getOwner,
     keysArrayToObj,
-    isChatAllowed,
-    getUnixTime
+    isChatAllowed
 } = require("./api/utils/utils.js");
 
 async function main(config) {
 
-    // ✅ CONFIG FIX
     config.chatWhitelist = keysArrayToObj(config.chatWhitelist || {});
     config.chatBlacklist = keysArrayToObj(config.chatBlacklist || {});
     config.reserveLang = config.reserveLang || "en";
@@ -27,7 +25,6 @@ async function main(config) {
 
     console.log("🤖 Starting bot...");
 
-    // ✅ TOKEN FIX
     const token = config.botToken || config.BOT_TOKEN;
 
     if (!token) {
@@ -37,17 +34,13 @@ async function main(config) {
 
     const TGbot = new TelegramBot(token, { polling: true });
 
-    // 🔥 webhook temizle (çok önemli)
-    try {
-        await TGbot.deleteWebHook();
-    } catch (e) {}
+    try { await TGbot.deleteWebHook(); } catch (e) {}
 
     const bot = await TGbot.getMe();
     TGbot.me = bot;
 
     console.log("✅ Bot logged in as:", bot.username);
 
-    // ✅ DATABASE
     let db;
     try {
         db = getDatabase(config);
@@ -64,22 +57,16 @@ async function main(config) {
         config
     });
 
-    // 🔥 TAG RESOLVER SAFE LOAD
-    try {
-        TR.load(config);
-    } catch {
-        console.log("⚠️ TagResolver load hatası (önemli değil)");
-    }
+    try { TR.load(config); } catch {}
 
     const l = global.LGHLangs || {};
 
     // =========================
-    // MESSAGE HANDLER (SAFE)
+    // MESSAGE PARSER
     // =========================
     async function handleMessage(msg) {
         try {
-            if (!msg?.chat || !msg?.from) return null;
-
+            if (!msg || !msg.chat || !msg.from) return null;
             if (!isChatAllowed(config, msg.chat.id)) return null;
 
             TR.logMsg(msg);
@@ -90,35 +77,29 @@ async function main(config) {
             const isGroup = ["group", "supergroup"].includes(chat.type);
             chat.isGroup = isGroup;
 
-            // 🔥 USER SAFE ADD
             if (!db.users.exhist(from.id)) {
                 db.users.add(from);
             }
 
-            // 🔥 CRASH FIX
             const userData = db.users.get(from.id) || {};
             const user = { ...userData, ...from };
 
-            // 🔥 GROUP FIRST JOIN
             if (isGroup && !db.chats.get(chat.id)) {
 
                 console.log("➕ New group:", chat.id);
 
                 chat.lang = config.reserveLang;
-
                 db.chats.add(chat);
+
                 let dbChat = db.chats.get(chat.id);
 
                 try {
                     const adminList = await TR.getAdmins(TGbot, chat.id, db);
-
                     dbChat = RM.reloadAdmins(dbChat, adminList);
 
-                    // ❗ BURASI ÖNEMLİ (senin kodda eksikti)
                     db.chats.save(chat.id);
 
                     const creator = getOwner(adminList);
-
                     let text = l[dbChat.lang]?.NEW_GROUP || "Bot added.";
 
                     if (creator && !creator.is_anonymous) {
@@ -132,17 +113,15 @@ async function main(config) {
                     });
 
                 } catch (e) {
-                    console.log("⚠️ Admin çekme hatası");
+                    console.log("⚠️ Admin fetch error");
                 }
             }
 
-            // 🔥 CHAT MERGE SAFE
             const dbChat = chat.isGroup ? db.chats.get(chat.id) || {} : {};
             chat = { ...dbChat, ...chat };
 
             msg.chat = chat;
 
-            // 🔥 COMMAND SAFE
             msg.command = parseCommand(msg.text || "");
 
             return { msg, chat, user };
@@ -154,9 +133,8 @@ async function main(config) {
     }
 
     // =========================
-    // EVENTS
+    // MESSAGE EVENT
     // =========================
-
     TGbot.on("message", async (msg) => {
 
         const data = await handleMessage(msg);
@@ -165,13 +143,17 @@ async function main(config) {
         const { msg: m, chat, user } = data;
 
         try {
+            console.log("📩 MSG:", m.text);
+
             GroupHelpBot.emit("message", m, chat, user);
 
-            // 🔥 COMMAND HANDLER SAFE
-            try {
-                GHCommand.messageEvent(m, chat, user);
-            } catch (e) {
-                console.log("⚠️ Command error:", e.message);
+            // ✅ COMMAND FIX
+            if (m.command) {
+                try {
+                    GHCommand.run(m, chat, user);
+                } catch (e) {
+                    console.log("⚠️ Command run error:", e.message);
+                }
             }
 
             if (chat.type === "private") {
@@ -183,17 +165,22 @@ async function main(config) {
         }
     });
 
+    // =========================
+    // CALLBACK FIXED
+    // =========================
     TGbot.on("callback_query", async (cb) => {
         try {
             if (!cb.message) return;
 
-            const chatId = cb.message.chat.id;
+            const data = await handleMessage(cb.message);
+            if (!data) return;
 
-            if (!isChatAllowed(config, chatId)) return;
+            const { chat, user } = data;
 
             TR.logCb(cb);
 
-            GroupHelpBot.emit("callback_query", cb);
+            // 🔥 CRITICAL FIX
+            GroupHelpBot.emit("callback_query", cb, chat, user);
 
         } catch (err) {
             console.log("❌ callback error:", err);
