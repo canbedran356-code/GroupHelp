@@ -1,0 +1,9 @@
+{
+  "botToken": "",
+  "ownerId": "",
+  "reserveLang": "en",
+  "allowExternalApi": true,
+  "chatWhitelist": {},
+  "chatBlacklist": {},
+  "databasePath": "./database"
+}
