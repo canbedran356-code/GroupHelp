@@ -1,9 +1,13 @@
-// 🔥 CRASH FIX
+// 🔥 ULTRA SAFE GUARDS
+if(!chat) return;
+if(!user) return;
+
+if(!global.LGHMedia) global.LGHMedia = {};
 if(!chat.media) chat.media = {};
 
 if(msg.chat.type != "private"){(()=>{
 
-    if(!user || !user.perms || user.perms.media == 1) return;
+    if(!user.perms || user.perms.media == 1) return;
 
     var mediaPunish = newPunishObj();
     var textPunish = newPunishObj();
@@ -16,7 +20,7 @@ if(msg.chat.type != "private"){(()=>{
     var isAlbum = msg.hasOwnProperty("media_group_id");
     var toHandleAlbum = chat.media.hasOwnProperty("album") && isAlbum;
 
-    if(isAlbum && !global.LGHMedia.hasOwnProperty(msg.media_group_id)){
+    if(isAlbum && !global.LGHMedia[msg.media_group_id]){
         global.LGHMedia[msg.media_group_id] = getUnixTime();
 
         if(toHandleAlbum){
@@ -24,7 +28,7 @@ if(msg.chat.type != "private"){(()=>{
             punishList.push("album");
         }
 
-    } else if(isAlbum && global.LGHMedia.hasOwnProperty(msg.media_group_id)){
+    } else if(isAlbum && global.LGHMedia[msg.media_group_id]){
 
         totalPunish.delete = mediaPunish.delete;
         if(toHandleAlbum) totalPunish.delete = totalPunish.delete || chat.media.album;
@@ -35,44 +39,54 @@ if(msg.chat.type != "private"){(()=>{
     totalPunish = sumPunishObj(mediaPunish, textPunish);
 
     // emoji fix
-    if(chat.media.hasOwnProperty("emoji_video") && msg.text && msg.text.length <= 4 && emojiTable[msg.text] && !isAlbum){
+    if(chat.media.emoji_video && msg.text && msg.text.length <= 4 && emojiTable[msg.text] && !isAlbum){
         totalPunish = sumPunishObj(totalPunish, chat.media.emoji_video);
         punishList.push("emoji_video");
     }
 
-    // sticker FIX
-    if(chat.media.hasOwnProperty("sticker") && msg.hasOwnProperty("sticker") && !msg.sticker.is_video && !msg.sticker.is_animated){
+    // sticker
+    if(chat.media.sticker && msg.sticker && !msg.sticker.is_video && !msg.sticker.is_animated){
         totalPunish = sumPunishObj(totalPunish, chat.media.sticker);
         punishList.push("sticker");
     }
 
-    // 🔥 BURASI KRİTİK FIX
-    if(chat.media.hasOwnProperty("sticker_video") && msg.hasOwnProperty("sticker") && (msg.sticker.is_video || msg.sticker.is_animated)){
+    // sticker video
+    if(chat.media.sticker_video && msg.sticker && (msg.sticker.is_video || msg.sticker.is_animated)){
         totalPunish = sumPunishObj(totalPunish, chat.media.sticker_video);
         punishList.push("sticker_video");
     }
 
-    var text = msg.text || msg.caption;
+    var text = msg.text || msg.caption || "";
 
-    if(chat.media.hasOwnProperty("capital") && isLatin(text) && text == text.toUpperCase()){
+    if(chat.media.capital && isLatin(text) && text === text.toUpperCase()){
         totalPunish = sumPunishObj(totalPunish, chat.media.capital);
         punishList.push("capital");
     }
 
-    if(chat.media.hasOwnProperty("scheduled") && msg.is_from_offline){
+    if(chat.media.scheduled && msg.is_from_offline){
         totalPunish = sumPunishObj(totalPunish, chat.media.scheduled);
         punishList.push("scheduled");
     }
 
     // 🔥 PUNISH SAFE
-    if(totalPunish.punishment != 0){
+    if(totalPunish.punishment){
 
-        punishList = punishList.map(type => l[chat.lang]["MEDIA:"+type] || type);
+        punishList = punishList.map(type => (l[chat.lang] && l[chat.lang]["MEDIA:"+type]) || type);
 
         var types = punishList.join("+");
-        var reason = l[chat.lang].UNALLOWED_MEDIA_PUNISHMENT.replace("{types}", types);
+        var reason = (l[chat.lang] && l[chat.lang].UNALLOWED_MEDIA_PUNISHMENT)
+            ? l[chat.lang].UNALLOWED_MEDIA_PUNISHMENT.replace("{types}", types)
+            : types;
 
-        punishUser(GHbot, user.id, msg.chat, RM.userToTarget(msg.chat, user), totalPunish.punishment, totalPunish.PTime, reason);
+        punishUser(
+            GHbot,
+            user.id,
+            msg.chat,
+            RM.userToTarget(msg.chat, user),
+            totalPunish.punishment,
+            totalPunish.PTime,
+            reason
+        );
     }
 
     // 🔥 DELETE SAFE
